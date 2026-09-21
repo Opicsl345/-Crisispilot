@@ -1,0 +1,66 @@
+{
+    "reports": [
+        {
+            "report_id": "145c3299",
+            "timestamp": "2026-09-21T04:24:03.522641",
+            "status": "AWAITING_REVIEW",
+            "gov_response": "Report logged. Ready for review.",
+            "user_input": {
+                "disaster_type": "Earthquake",
+                "description": "earthquake",
+                "latitude": 27.5086,
+                "longitude": 83.2544
+            }
+        },
+        {
+            "report_id": "0138600d",
+            "timestamp": "2026-09-21T04:32:01.409943",
+            "status": "AWAITING_REVIEW",
+            "gov_response": "Report logged. Ready for review.",
+            "user_input": {
+                "disaster_type": "Landslide",
+                "description": "landslide",
+                "latitude": 27.6677,
+                "longitude": 85.4356
+            }
+        },
+        {
+            "report_id": "c6c6d406",
+            "timestamp": "2026-09-21T04:36:28.246657",
+            "status": "UNITS_DEPLOYED",
+            "gov_response": "Report logged. Ready for review.",
+            "user_input": {
+                "disaster_type": "Fire",
+                "description": "fire in my house",
+                "latitude": 27.7283,
+                "longitude": 85.3236
+            }
+        },
+        {
+            "report_id": "RPT-1789975434",
+            "timestamp": "2026-09-21T13:08:54.358052",
+            "status": "AWAITING_REVIEW",
+            "gov_response": "Report logged. Awaiting official triage and dispatch.",
+            "resolved_at": null,
+            "user_input": {
+                "disaster_type": "Earthquake",
+                "description": "earthquake",
+                "latitude": 27.7613,
+                "longitude": 85.144
+            }
+        },
+        {
+            "report_id": "RPT-1789975631",
+            "timestamp": "2026-09-21T13:12:11.587668",
+            "status": "AWAITING_REVIEW",
+            "gov_response": "Report logged. Awaiting official triage and dispatch.",
+            "resolved_at": null,
+            "user_input": {
+                "disaster_type": "Earthquake",
+                "description": "help earthquake ",
+                "latitude": 27.8038,
+                "longitude": 85.3784
+            }
+        }
+    ]
+}

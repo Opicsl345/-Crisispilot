@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>CrisisPilot - Authority Command Center</title>
+    <!-- Leaflet JS & CSS for Map -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div style="padding: 20px;">
+        <h1 style="color: #ef4444; margin-bottom: 20px;">🚨 CrisisPilot Operations Center</h1>
+        
+        <div class="layout-grid">
+            <!-- LEFT: Map and Drone Footage -->
+            <div class="visual-column">
+                <div id="map"></div>
+                
+                <!-- Active Drone Camera Feed Container -->
+                <div style="background: #1e293b; padding: 20px; border-radius: 8px; border: 1px solid #334155; margin-top: 15px;">
+                    <h3 style="color: #38bdf8; margin-top: 0;">🚁 Active Drone Camera Feed</h3>
+                    
+                    <div id="droneFeedBox" style="background: #0f172a; height: 240px; border-radius: 6px; display: flex; flex-direction: column; justify-content: center; align-items: center; border: 1px dashed #475569; position: relative; overflow: hidden;">
+                        
+                        <div id="feedPlaceholder" style="color: #64748b; text-align: center;">
+                            <p style="font-size: 1.1rem; margin-bottom: 4px;">No Drone Deployed</p>
+                            <p style="font-size: 0.8rem;">Awaiting target dispatch coordinates...</p>
+                        </div>
+                        
+                        <!-- Live Video Element (Streams the OpenCV video with the built-in count text) -->
+                        <img id="liveVideoStream" src="" style="display: none; width: 100%; height: 100%; object-fit: cover; border-radius: 6px;">
+
+                    </div>
+                </div>
+
+                <div class="drone-container" style="margin-top: 15px;">
+                    <div class="drone-hud" id="droneHudText">
+                        ▶ SYS: YOLOV8 ACTIVE<br>
+                        ▶ DRONE HANGAR: STANDBY<br>
+                        AWAITING DRONE DEPLOYMENT COMMAND
+                    </div>
+                    <img src="https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExcG8yM2dheG9waDBmMW1xdGkwMWM4aXVtdXBscXB1M2d2OGhzMmUyZCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/3o7aD11HweAgemGkww/giphy.gif" style="width: 100%; opacity: 0.3; border-radius: 4px;">
+                </div>
+            </div>
+
+            <!-- RIGHT: Live Incidents & Triage -->
+            <div class="reports-column" id="adminGrid">
+                <h2>Incoming Triage Reports</h2>
+                <p style="color: #94a3b8;">Loading reports...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API = "http://127.0.0.1:8000/api/v1";
+        const droneBase = { lat: 27.7500, lon: 85.4000 };
+
+        let govMap = L.map('map').setView([27.7172, 85.3240], 13);
+        let mapMarkers = {};
+        let flightPathLine = null;
+        let droneMarker = null;
+        
+        let knownReportIds = new Set();
+        let initialLoadDone = false;
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { 
+            maxZoom: 19,
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(govMap);
+
+        const baseIcon = L.divIcon({ html: '🏢', iconSize: [30, 30] });
+        L.marker([droneBase.lat, droneBase.lon], { icon: baseIcon }).addTo(govMap)
+            .bindPopup("<b>Remote Drone Airbase (Hangar)</b>");
+
+        function timeSince(dateString) {
+            const date = new Date(dateString);
+            const seconds = Math.floor((new Date() - date) / 1000);
+            if (seconds < 60) return "Just now";
+            const minutes = Math.floor(seconds / 60);
+            if (minutes < 60) return `${minutes}m ago`;
+            const hours = Math.floor(minutes / 60);
+            return `${hours}h ago`;
+        }
+
+        async function loadAdminFeed() {
+            try {
+                const res = await fetch(`${API}/reports`);
+                const data = await res.json();
+                const grid = document.getElementById("adminGrid");
+                
+                if (!data.reports || data.reports.length === 0) {
+                    grid.innerHTML = '<h2>Incoming Triage Reports</h2><p style="color: #94a3b8;">No active emergencies logged.</p>';
+                    return;
+                }
+
+                grid.innerHTML = '<h2>Incoming Triage Reports</h2>';
+
+                let newestUnseenReport = null;
+
+                data.reports.forEach(r => {
+                    const lat = r.user_input.latitude;
+                    const lon = r.user_input.longitude;
+
+                    if (!knownReportIds.has(r.report_id)) {
+                        knownReportIds.add(r.report_id);
+                        if (initialLoadDone) {
+                            newestUnseenReport = r; // Brand new report submitted while page is open
+                        }
+                    }
+
+                    if (lat && lon) {
+                        if (!mapMarkers[r.report_id]) {
+                            const marker = L.marker([lat, lon]).addTo(govMap)
+                                .bindPopup(`
+                                    <b>${r.user_input.disaster_type}</b><br>
+                                    Status: ${r.status}<br>
+                                    <hr style="margin:4px 0;">
+                                    ${r.user_input.description}
+                                `);
+                            mapMarkers[r.report_id] = marker;
+                        } else {
+                            mapMarkers[r.report_id].setLatLng([lat, lon]).setPopupContent(`
+                                <b>${r.user_input.disaster_type}</b><br>
+                                Status: ${r.status}<br>
+                                <hr style="margin:4px 0;">
+                                ${r.user_input.description}
+                            `);
+                        }
+                    }
+
+                    let isResolved = r.status === "RESOLVED";
+                    let cardStyle = isResolved ? "border-left: 4px solid #22c55e; opacity: 0.8;" : "border-left: 4px solid #f97316;";
+                    let timeDisplay = isResolved ? "Resolved" : timeSince(r.timestamp);
+
+                    grid.innerHTML += `
+                        <div class="report-card" style="${cardStyle}">
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="font-size: 0.8rem; color: #38bdf8; font-weight: bold;">ID: ${r.report_id}</span>
+                                <span style="font-size: 0.8rem; color: #94a3b8; font-weight: bold;">${timeDisplay}</span>
+                            </div>
+                            <h3 style="margin: 8px 0;">${r.user_input.disaster_type}</h3>
+                            <p style="font-size: 0.85rem; color: #cbd5e1; margin-bottom: 5px;">📍 <b>Coords:</b> ${lat}, ${lon}</p>
+                            <p style="font-size: 0.85rem; color: #cbd5e1; margin-bottom: 10px;">${r.user_input.description}</p>
+                            
+                            <button class="btn-primary" style="background: #38bdf8; color: black; margin-bottom: 10px; padding: 8px; width:100%; font-weight: bold; border:none; border-radius:4px; cursor:pointer;" onclick="dispatchDrone(${lat}, ${lon}, '${r.user_input.disaster_type}', '${r.report_id}')">
+                                🛸 Deploy Autonomous Drone Inspection
+                            </button>
+
+                            <div class="control-panel" style="display:flex; flex-direction:column; gap:8px;">
+                                <select id="status_${r.report_id}" style="background:#0f172a; color:white; border:1px solid #475569; padding:6px; border-radius:4px;">
+                                    <option value="AWAITING_REVIEW" ${r.status==='AWAITING_REVIEW'?'selected':''}>Awaiting Review</option>
+                                    <option value="UNITS_DEPLOYED" ${r.status==='UNITS_DEPLOYED'?'selected':''}>Units Deployed</option>
+                                    <option value="RESOLVED" ${r.status==='RESOLVED'?'selected':''}>Resolved</option>
+                                </select>
+                                <input type="text" id="note_${r.report_id}" style="background:#0f172a; color:white; border:1px solid #475569; padding:6px; border-radius:4px;" value="${r.gov_response}" placeholder="Official response / action...">
+                                <button style="background:#ef4444; color:white; border:none; padding: 8px; width:100%; border-radius:4px; font-weight:bold; cursor:pointer;" onclick="updateStatus('${r.report_id}')">Push Update</button>
+                            </div>
+                        </div>
+                    `;
+                });
+
+                // Auto-deploy on initial page load if reports exist
+                if (!initialLoadDone && data.reports.length > 0) {
+                    initialLoadDone = true;
+                    const topReport = data.reports[0];
+                    if (topReport.user_input.latitude && topReport.user_input.longitude) {
+                        dispatchDrone(topReport.user_input.latitude, topReport.user_input.longitude, topReport.user_input.disaster_type, topReport.report_id);
+                    }
+                } 
+                // Auto-deploy whenever a brand new report is submitted later
+                else if (newestUnseenReport) {
+                    const lat = newestUnseenReport.user_input.latitude;
+                    const lon = newestUnseenReport.user_input.longitude;
+                    if (lat && lon) {
+                        dispatchDrone(lat, lon, newestUnseenReport.user_input.disaster_type, newestUnseenReport.report_id);
+                    }
+                }
+
+            } catch (err) {
+                console.error("Error loading admin feed:", err);
+            }
+        }
+
+        async function dispatchDrone(targetLat, targetLon, disasterType, reportId) {
+            govMap.setView([targetLat, targetLon], 14);
+
+            if (flightPathLine) govMap.removeLayer(flightPathLine);
+            if (droneMarker) govMap.removeLayer(droneMarker);
+
+            // Turn on the live Python video stream automatically
+            document.getElementById("feedPlaceholder").style.display = "none";
+            const videoStream = document.getElementById("liveVideoStream");
+            videoStream.style.display = "block";
+            videoStream.src = "http://127.0.0.1:5000/video_feed";
+
+            let distanceKm = "Calculated";
+            try {
+                const fd = new FormData();
+                fd.append("target_lat", targetLat);
+                fd.append("target_lon", targetLon);
+                const res = await fetch(`${API}/drone/deploy`, { method: "POST", body: fd });
+                const data = await res.json();
+                if (data.status === "success") {
+                    distanceKm = data.telemetry.distance_km + " km";
+                }
+            } catch (e) {
+                console.log("Using local simulation path");
+            }
+
+            flightPathLine = L.polyline([
+                [droneBase.lat, droneBase.lon],
+                [targetLat, targetLon]
+            ], { color: '#38bdf8', dashArray: '5, 5', weight: 3 }).addTo(govMap);
+
+            const droneIcon = L.divIcon({ html: '🛸', iconSize: [30, 30] });
+            droneMarker = L.marker([droneBase.lat, droneBase.lon], { icon: droneIcon }).addTo(govMap);
+
+            let progress = 0;
+            const steps = 60;
+            const flightInterval = setInterval(() => {
+                progress++;
+                const curLat = droneBase.lat + (targetLat - droneBase.lat) * (progress / steps);
+                const curLon = droneBase.lon + (targetLon - droneBase.lon) * (progress / steps);
+                droneMarker.setLatLng([curLat, curLon]);
+
+                document.getElementById("droneHudText").innerHTML = `
+                    ▶ SYS: YOLOV8 ACTIVE<br>
+                    ▶ DRONE: EN ROUTE TO ${disasterType.toUpperCase()}<br>
+                    ▶ DISTANCE: ${distanceKm} | PROGRESS: ${Math.round((progress/steps)*100)}%
+                `;
+
+                if (progress >= steps) {
+                    clearInterval(flightInterval);
+                    document.getElementById("droneHudText").innerHTML = `
+                        ▶ SYS: YOLOV8 ACTIVE<br>
+                        ▶ DRONE: ON STATION (REPORT #${reportId})<br>
+                        ▶ STATUS: LIVE AERIAL STREAMING ACTIVE
+                    `;
+                }
+            }, 40);
+        }
+
+        async function updateStatus(id) {
+            const status = document.getElementById(`status_${id}`).value;
+            const note = document.getElementById(`note_${id}`).value;
+            const fd = new FormData();
+            fd.append("status", status);
+            fd.append("gov_note", note);
+            await fetch(`${API}/report/${id}/update`, { method: "POST", body: fd });
+            loadAdminFeed();
+        }
+
+        loadAdminFeed();
+        setInterval(loadAdminFeed, 10000);
+    </script>
+</body>
+</html>

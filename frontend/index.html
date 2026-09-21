@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CrisisPilot - Public Transparency Portal</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body style="background: #0f172a; color: #f8fafc; font-family: sans-serif; margin: 0; padding: 20px;">
+
+    <div style="max-width: 900px; margin: 0 auto;">
+        <h1 style="color: #ef4444; margin-bottom: 5px;">🚨 CrisisPilot Public Transparency Portal</h1>
+        <p style="color: #94a3b8; margin-bottom: 30px;">Submit emergency incidents and track live public authority response times and dispatch statuses.</p>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+            <!-- LEFT: Submission Form -->
+            <div style="background: #1e293b; padding: 20px; border-radius: 8px; border: 1px solid #334155;">
+                <h2 style="margin-top: 0; font-size: 1.2rem; color: #38bdf8;">File New Report</h2>
+                <form id="reportForm" onsubmit="submitReport(event)">
+                    <div style="margin-bottom: 12px;">
+                        <label style="display: block; margin-bottom: 4px; font-size: 0.85rem; font-weight: bold;">Disaster Type</label>
+                        <select id="disasterType" required style="width: 100%; background: #0f172a; color: white; border: 1px solid #475569; padding: 8px; border-radius: 4px;">
+                            <option value="" disabled selected>Select category...</option>
+                            <option value="Earthquake">Earthquake</option>
+                            <option value="Landslide">Landslide</option>
+                            <option value="Flood">Flood</option>
+                            <option value="Fire">Fire</option>
+                            <option value="Building Collapse">Building Collapse</option>
+                            <option value="Medical Emergency">Medical Emergency</option>
+                        </select>
+                    </div>
+
+                    <div style="margin-bottom: 12px;">
+                        <label style="display: block; margin-bottom: 4px; font-size: 0.85rem; font-weight: bold;">Situation Description</label>
+                        <textarea id="description" rows="3" placeholder="Describe situation..." required style="width: 100%; background: #0f172a; color: white; border: 1px solid #475569; padding: 8px; border-radius: 4px; resize: vertical;"></textarea>
+                    </div>
+
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 4px; font-size: 0.85rem; font-weight: bold;">Location (Click map)</label>
+                        <div id="pickerMap" style="height: 150px; border-radius: 4px; margin-bottom: 8px;"></div>
+                        <div style="display: flex; gap: 8px;">
+                            <input type="number" id="latitude" step="any" readonly style="background: #0f172a; color: #cbd5e1; border: 1px solid #475569; padding: 6px; border-radius: 4px; width: 50%;">
+                            <input type="number" id="longitude" step="any" readonly style="background: #0f172a; color: #cbd5e1; border: 1px solid #475569; padding: 6px; border-radius: 4px; width: 50%;">
+                        </div>
+                    </div>
+
+                    <button type="submit" style="background: #ef4444; color: white; border: none; padding: 10px; width: 100%; font-weight: bold; border-radius: 4px; cursor: pointer;">
+                        Submit Emergency Report
+                    </button>
+                </form>
+            </div>
+
+            <!-- RIGHT: Public Transparency Feed & Response Statuses -->
+            <div style="background: #1e293b; padding: 20px; border-radius: 8px; border: 1px solid #334155; max-height: 500px; overflow-y: auto;">
+                <h2 style="margin-top: 0; font-size: 1.2rem; color: #38bdf8;">Public Transparency Feed</h2>
+                <p style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 15px;">Live feed showing official authority responses and resolution times.</p>
+                <div id="publicFeed">
+                    <p style="color: #94a3b8; font-size: 0.85rem;">Loading public records...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API = "http://127.0.0.1:8000/api/v1";
+
+        let map = L.map('pickerMap').setView([27.7172, 85.3240], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+        let marker = L.marker([27.7172, 85.3240], { draggable: true }).addTo(map);
+
+        document.getElementById("latitude").value = 27.7172;
+        document.getElementById("longitude").value = 85.3240;
+
+        marker.on('dragend', (e) => {
+            let pos = marker.getLatLng();
+            document.getElementById("latitude").value = pos.lat.toFixed(4);
+            document.getElementById("longitude").value = pos.lng.toFixed(4);
+        });
+        map.on('click', (e) => {
+            marker.setLatLng(e.latlng);
+            document.getElementById("latitude").value = e.latlng.lat.toFixed(4);
+            document.getElementById("longitude").value = e.latlng.lng.toFixed(4);
+        });
+
+        async function submitReport(event) {
+            event.preventDefault();
+            const payload = {
+                disaster_type: document.getElementById("disasterType").value,
+                description: document.getElementById("description").value,
+                latitude: parseFloat(document.getElementById("latitude").value),
+                longitude: parseFloat(document.getElementById("longitude").value)
+            };
+
+            try {
+                const res = await fetch(`${API}/report`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (data.status === "success") {
+                    alert(`Report submitted successfully! ID: ${data.report_id}`);
+                    document.getElementById("reportForm").reset();
+                    loadPublicFeed();
+                }
+            } catch (err) {
+                alert("Failed to submit report.");
+            }
+        }
+
+        async function loadPublicFeed() {
+            try {
+                const res = await fetch(`${API}/reports`);
+                const data = await res.json();
+                const feed = document.getElementById("publicFeed");
+
+                if (!data.reports || data.reports.length === 0) {
+                    feed.innerHTML = '<p style="color: #94a3b8; font-size: 0.85rem;">No public reports logged yet.</p>';
+                    return;
+                }
+
+                feed.innerHTML = "";
+                data.reports.forEach(r => {
+                    let badgeColor = r.status === 'RESOLVED' ? '#22c55e' : (r.status === 'UNITS_DEPLOYED' ? '#38bdf8' : '#f97316');
+                    
+                    feed.innerHTML += `
+                        <div style="background: #0f172a; border-left: 3px solid ${badgeColor}; padding: 10px; border-radius: 4px; margin-bottom: 10px; font-size: 0.85rem;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                                <span style="font-weight: bold; color: white;">${r.user_input.disaster_type}</span>
+                                <span style="color: ${badgeColor}; font-weight: bold; font-size: 0.75rem;">${r.status}</span>
+                            </div>
+                            <p style="color: #cbd5e1; margin: 4px 0;">${r.user_input.description}</p>
+                            <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid #1e293b; color: #94a3b8; font-size: 0.75rem;">
+                                🛡️ <b>Authority Response:</b> ${r.gov_response || 'Pending evaluation'}
+                            </div>
+                        </div>
+                    `;
+                });
+            } catch (e) {
+                console.error("Error loading feed:", e);
+            }
+        }
+
+        loadPublicFeed();
+        setInterval(loadPublicFeed, 5000); // Live refresh every 5 seconds
+    </script>
+</body>
+</html>
